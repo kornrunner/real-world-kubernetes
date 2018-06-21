@@ -39,14 +39,14 @@ For etcd we are going to scale the cluster from a single machine up to a three m
 
 ## Single Machine
 
-Setup an etcd cluster with a single machine on core-01. This is as easy as starting the etcd2 service on CoreOS.
+Setup an etcd cluster with a single machine on core-01. This is as easy as starting the etcd-member service on CoreOS.
 
 ```
 vagrant up
 vagrant ssh-config > ssh-config
 vagrant ssh core-01
-sudo systemctl start etcd2
-systemctl status etcd2
+sudo systemctl start etcd-member
+systemctl status etcd-member
 ```
 
 Confirm that you can write into etcd now:
@@ -73,8 +73,8 @@ Let's reconfigure etcd to listen on public ports to get it ready to cluster.
 
 ```
 sudo su 
-sudo mkdir /etc/systemd/system/etcd2.service.d/
-cat  <<EOM > /etc/systemd/system/etcd2.service.d/10-listen.conf
+sudo mkdir /etc/systemd/system/etcd-member.service.d/
+cat  <<EOM > /etc/systemd/system/etcd-member.service.d/10-listen.conf
 [Service]
 Environment=ETCD_NAME=core-01
 Environment=ETCD_ADVERTISE_CLIENT_URLS=http://172.17.8.101:2379
@@ -87,7 +87,7 @@ All thats left is to restart etcd and the reconfiguration should be complete.
 
 ```
 sudo systemctl daemon-reload
-sudo systemctl restart etcd2
+sudo systemctl restart etcd-member
 etcdctl get kubernetes
 ```
 
@@ -110,8 +110,8 @@ The above command will dump out a bunch of initial configuration information. Ne
 
 ```
 sudo su
-mkdir /etc/systemd/system/etcd2.service.d/
-cat  <<EOM > /etc/systemd/system/etcd2.service.d/10-listen.conf
+mkdir /etc/systemd/system/etcd-member.service.d/
+cat  <<EOM > /etc/systemd/system/etcd-member.service.d/10-listen.conf
 [Service]
 Environment=ETCD_NAME=core-02
 Environment=ETCD_INITIAL_CLUSTER=core-01=http://172.17.8.101:2380,core-02=http://172.17.8.102:2380
@@ -125,21 +125,21 @@ EOM
 
 ```
 sudo systemctl daemon-reload
-sudo systemctl restart etcd2
+sudo systemctl restart etcd-member
 etcdctl member list
 ```
 
 Now, at this point the cluster is in an unsafe configuration. If either machine fails etcd will stop working.
 
 ```
-sudo systemctl stop etcd2
+sudo systemctl stop etcd-member
 exit
 vagrant ssh core-01
 sudo etcdctl set kubernetes bad
 sudo etcdctl get kubernetes
 exit
 vagrant ssh core-02
-sudo systemctl start etcd2
+sudo systemctl start etcd-member
 sudo etcdctl set kubernetes awesome
 ```
 
@@ -154,8 +154,8 @@ etcdctl --peers http://172.17.8.101:2379 member add core-03 http://172.17.8.103:
 
 ```
 sudo su
-mkdir /etc/systemd/system/etcd2.service.d/
-cat  <<EOM > /etc/systemd/system/etcd2.service.d/10-listen.conf
+mkdir /etc/systemd/system/etcd-member.service.d/
+cat  <<EOM > /etc/systemd/system/etcd-member.service.d/10-listen.conf
 [Service]
 Environment=ETCD_NAME=core-03
 Environment=ETCD_INITIAL_CLUSTER=core-01=http://172.17.8.101:2380,core-02=http://172.17.8.102:2380,core-03=http://172.17.8.103:2380
@@ -170,7 +170,7 @@ EOM
 
 ```
 sudo systemctl daemon-reload
-sudo systemctl restart etcd2
+sudo systemctl restart etcd-member
 etcdctl member list
 ```
 
@@ -215,7 +215,7 @@ Startup a single machine etcd cluster on core-01 and launch a process that will 
 
 ```
 ssh core-02
-systemctl start etcd2
+systemctl start etcd-member
 sudo systemd-run /bin/sh -c 'while true; do  etcdctl set now "$(date)"; sleep 5; done'
 exit
 ```
@@ -223,7 +223,7 @@ exit
 Backup the etcd cluster state to a tar file and save it on the local filesystem. In a production cluster this could be done with a tool like rclone in a container to save it to an object store or another server.
 
 ```
-ssh core-02 sudo tar cfz - /var/lib/etcd2 > backup.tar.gz
+ssh core-02 sudo tar cfz - /var/lib/etcd > backup.tar.gz
 ssh core-02 etcdctl get now
 vagrant destroy -f core-02
 vagrant up core-02
@@ -239,26 +239,26 @@ scp backup.tar.gz core-01:
 ssh core-01
 tar xzvf backup.tar.gz
 sudo su
-mv var/lib/etcd2/member /var/lib/etcd2/
-chown -R etcd /var/lib/etcd2
+mv var/lib/etcd/member /var/lib/etcd/
+chown -R etcd /var/lib/etcd
 ```
 
 Next we need to tell etcd to start but to only use the data, not the cluster configuration. We do this by setting a flag called FORCE_NEW_CLUSTER. This is something like "single user mode" on a Linux host.
 
 ```
-mkdir -p /run/systemd/system/etcd2.service.d
-cat  <<EOM > /run/systemd/system/etcd2.service.d/10-new-cluster.conf
+mkdir -p /run/systemd/system/etcd-member.service.d
+cat  <<EOM > /run/systemd/system/etcd-member.service.d/10-new-cluster.conf
 [Service]
 Environment=ETCD_FORCE_NEW_CLUSTER=1
 EOM
 systemctl daemon-reload
-systemctl restart etcd2
+systemctl restart etcd-member
 ```
 
 To ensure we don't accidently reset the cluster configuration in the future, remove the force new cluster option and flush it from systemd.
 
 ```
-rm /run/systemd/system/etcd2.service.d/10-new-cluster.conf
+rm /run/systemd/system/etcd-member.service.d/10-new-cluster.conf
 systemctl daemon-reload
 ```
 
@@ -324,8 +324,8 @@ Finally, prepare etcd to use a certificate and key file that are dropped onto th
 ```
 ssh core-01
 sudo su
-mkdir /etc/systemd/system/etcd2.service.d/
-cat  <<EOM > /etc/systemd/system/etcd2.service.d/10-listen.conf
+mkdir /etc/systemd/system/etcd-member.service.d/
+cat  <<EOM > /etc/systemd/system/etcd-member.service.d/10-listen.conf
 [Service]
 Environment=ETCD_NAME=core-01
 Environment=ETCD_ADVERTISE_CLIENT_URLS=https://core-01:2379
@@ -334,7 +334,7 @@ Environment=ETCD_CERT_FILE=/etc/etcd/etcd.pem
 Environment=ETCD_KEY_FILE=/etc/etcd/etcd-key.pem
 EOM
 systemctl daemon-reload
-systemctl restart etcd2
+systemctl restart etcd-member
 exit
 exit
 ```
@@ -416,7 +416,7 @@ kubectl run pause --image=gcr.io/google_containers/pause
 Next, we will stop etcd simulating a partition:
 
 ```
-ssh core-01 sudo systemctl stop etcd2
+ssh core-01 sudo systemctl stop etcd-member
 ```
 
 Attempting to do any API call to the server is going to fail blocked on etcd. This behavior is identical to if you had a web service and stopped its SQL database.
@@ -428,7 +428,7 @@ kubectl describe rc pause
 Lets start up etcd and get things going:
 
 ```
-ssh core-01 sudo systemctl start etcd2
+ssh core-01 sudo systemctl start etcd-member
 ``` 
 
 After a few seconds the API server should start responding and we should be able to get the status of our replication controller:
@@ -448,7 +448,7 @@ kubectl run pause --image=gcr.io/google_containers/pause
 And take a quick backup of etcd:
 
 ```
-ssh core-01 sudo tar cfz - /var/lib/etcd2 > backup.tar.gz
+ssh core-01 sudo tar cfz - /var/lib/etcd > backup.tar.gz
 ```
 
 ```
@@ -457,7 +457,7 @@ kubectl describe rc pause
 ```
 
 ```
-ssh core-01 sudo systemctl stop etcd2
+ssh core-01 sudo systemctl stop etcd-member
 ```
 
 ```
@@ -465,7 +465,7 @@ ssh core-01
 sudo su
 mkdir tmp
 mv /etc/kubernetes/manifests/kube-* tmp/
-rm -Rf /var/lib/etcd2/*
+rm -Rf /var/lib/etcd/*
 exit
 docker ps
 exit
@@ -476,9 +476,9 @@ scp backup.tar.gz core-01:
 ssh core-01
 tar xzvf backup.tar.gz
 sudo su
-mv var/lib/etcd2/member /var/lib/etcd2/
-chown -R etcd /var/lib/etcd2
-systemctl start etcd2.service
+mv var/lib/etcd/member /var/lib/etcd/
+chown -R etcd /var/lib/etcd
+systemctl start etcd-member.service
 mv tmp/* /etc/kubernetes/manifests
 exit
 etcdctl --peers https://core-01:2379 --ca-file certs/ca.pem set kubernetes is-ready
